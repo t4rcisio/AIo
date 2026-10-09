@@ -16,6 +16,9 @@
     <!-- Permissão para exibir notificações no Android 13+ (API 33+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Permissão para verificar contatos da agenda para regras de atendimento com IA -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
     <!-- Permissão para manter CPU ativa durante benchmarks longos de IA -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 

@@ -31,8 +31,19 @@ object CallRepository {
         val stateString: String,
         val isMuted: Boolean = false,
         val audioRoute: Int = android.telecom.CallAudioState.ROUTE_EARPIECE,
-        val isWhatsApp: Boolean = false
+        val isWhatsApp: Boolean = false,
+        val isBotActive: Boolean = false
     )
+
+    private val _isBotActiveForCall = MutableStateFlow(false)
+    val isBotActiveForCall: StateFlow<Boolean> = _isBotActiveForCall.asStateFlow()
+
+    fun setBotActiveForCall(active: Boolean) {
+        _isBotActiveForCall.value = active
+        _activeCallState.value?.let { current ->
+            _activeCallState.value = current.copy(isBotActive = active)
+        }
+    }
 
     private val _currentAudioRoute = MutableStateFlow(android.telecom.CallAudioState.ROUTE_EARPIECE)
     val currentAudioRoute: StateFlow<Int> = _currentAudioRoute.asStateFlow()
@@ -121,6 +132,8 @@ object CallRepository {
         val isWhatsApp = details?.hasProperty(Call.Details.PROPERTY_SELF_MANAGED) == true ||
                 details?.accountHandle?.componentName?.packageName?.contains("whatsapp", ignoreCase = true) == true
 
+        val isBotActive = _isBotActiveForCall.value && !isWhatsApp
+
         _activeCallState.value = CallStateInfo(
             callId = callId,
             phoneNumber = phoneNumber,
@@ -129,7 +142,8 @@ object CallRepository {
             stateString = stateToString(state),
             isMuted = isMuted,
             audioRoute = route,
-            isWhatsApp = isWhatsApp
+            isWhatsApp = isWhatsApp,
+            isBotActive = isBotActive
         )
     }
 

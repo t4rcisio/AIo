@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
 
     private var isDefaultDialerState by mutableStateOf(false)
     private var hasAudioPermissionState by mutableStateOf(false)
+    private var hasContactsPermissionState by mutableStateOf(false)
 
     private val requestRoleLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -54,6 +55,12 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { _ ->
         checkAudioPermissionStatus()
+    }
+
+    private val requestContactsPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        checkContactsPermissionStatus()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -119,7 +126,24 @@ class MainActivity : ComponentActivity() {
                         liveRms = callConvRms,
                         isSpeechDetected = callConvSpeech,
                         isAutoModeEnabled = callConvAutoMode,
-                        onToggleAutoMode = { callConversationManager.setAutoModeEnabled(!callConvAutoMode) },
+                        onToggleAutoMode = {
+                            val newMode = !callConvAutoMode
+                            callConversationManager.setAutoModeEnabled(newMode)
+                            CallRepository.setBotActiveForCall(newMode)
+                            if (newMode) {
+                                try {
+                                    CallRepository.setCallMicrophoneMute(true)
+                                    AICallInCallService.sendDaemonMute(true)
+                                } catch (ignored: Exception) {}
+                                callConversationManager.startCallConversation()
+                            } else {
+                                try {
+                                    CallRepository.setCallMicrophoneMute(false)
+                                    AICallInCallService.sendDaemonMute(false)
+                                } catch (ignored: Exception) {}
+                                callConversationManager.stopCallConversation(clearHistory = false)
+                            }
+                        },
                         onEndCall = {
                             CallRepository.disconnectActiveCall()
                         },
@@ -203,8 +227,10 @@ class MainActivity : ComponentActivity() {
                                         SettingsScreen(
                                             isDefaultDialer = isDefaultDialerState,
                                             hasAudioPermission = hasAudioPermissionState,
+                                            hasContactsPermission = hasContactsPermissionState,
                                             onRequestDefaultDialer = { requestDefaultDialerRole() },
                                             onRequestAudioPermission = { requestAudioPermission() },
+                                            onRequestContactsPermission = { requestContactsPermission() },
                                             apiConfigManager = apiConfigManager,
                                             audioPlayer = callConversationManager.audioPlayer,
                                             personas = personas,
@@ -250,6 +276,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         checkDefaultDialerStatus()
         checkAudioPermissionStatus()
+        checkContactsPermissionStatus()
         adbManager.startAutoDiscoveryAndConnect()
     }
 
@@ -277,6 +304,13 @@ class MainActivity : ComponentActivity() {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
+    private fun checkContactsPermissionStatus() {
+        hasContactsPermissionState = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.READ_CONTACTS
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
     private fun requestDefaultDialerRole() {
         val roleManager = getSystemService(RoleManager::class.java)
         if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_DIALER)) {
@@ -293,5 +327,9 @@ class MainActivity : ComponentActivity() {
 
     private fun requestAudioPermission() {
         requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    private fun requestContactsPermission() {
+        requestContactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
     }
 }

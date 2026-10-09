@@ -155,7 +155,24 @@ class IncomingCallActivity : ComponentActivity() {
                         liveRms = callConvRms,
                         isSpeechDetected = callConvSpeech,
                         isAutoModeEnabled = callConvAutoMode,
-                        onToggleAutoMode = { callConvManager.setAutoModeEnabled(!callConvAutoMode) },
+                        onToggleAutoMode = {
+                            val newMode = !callConvAutoMode
+                            callConvManager.setAutoModeEnabled(newMode)
+                            CallRepository.setBotActiveForCall(newMode)
+                            if (newMode) {
+                                try {
+                                    CallRepository.setCallMicrophoneMute(true)
+                                    AICallInCallService.sendDaemonMute(true)
+                                } catch (ignored: Exception) {}
+                                callConvManager.startCallConversation()
+                            } else {
+                                try {
+                                    CallRepository.setCallMicrophoneMute(false)
+                                    AICallInCallService.sendDaemonMute(false)
+                                } catch (ignored: Exception) {}
+                                callConvManager.stopCallConversation(clearHistory = false)
+                            }
+                        },
                         onEndCall = { disconnectCall() },
                         onToggleSpeaker = { CallRepository.toggleSpeaker() },
                         isSpeakerActive = callStateInfo?.audioRoute == android.telecom.CallAudioState.ROUTE_SPEAKER,
@@ -195,7 +212,13 @@ class IncomingCallActivity : ComponentActivity() {
         val callId = currentCallId ?: return
         val call = CallRepository.getCall(callId)
         if (call != null) {
-            Log.i(TAG, "[UI CALL] Answer pressed")
+            Log.i(TAG, "[UI CALL] Answer pressed manualmente pelo usuário")
+            CallRepository.setBotActiveForCall(false)
+            val convManager = com.example.ai_assistant.callconversation.CallConversationManager.getInstance(
+                applicationContext,
+                com.example.ai_assistant.api.ApiConfigManager(applicationContext)
+            )
+            convManager.setAutoModeEnabled(false)
             call.answer(VideoProfile.STATE_AUDIO_ONLY)
             CallNotificationManager.cancelNotification(this)
             // Força a rota padrão para Auricular (Earpiece), garantindo que não inicie em viva-voz

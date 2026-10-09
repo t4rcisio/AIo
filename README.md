@@ -45,8 +45,8 @@ It intercepts incoming caller audio (downlink) in digital PCM format, streams it
   - Whisper / Gemini STT streaming.
   - Sentence-streaming LLM (DeepSeek / Gemini / OpenAI compatible).
   - Neural TTS streaming (Gemini Speech / OpenAI PCM / Cartesia / ElevenLabs).
-- **Expressive Liquid Glass UI & Fluid Motion:** Fluid Compose animations with spring tactile press feedback, dynamically expanding navigation pills, and directional horizontal screen parallax transitions.
-- **WhatsApp & Self-Managed VoIP Telephony Integration:** Intercepts and autonomously answers VoIP calls from WhatsApp (and other self-managed Telecom apps) via Android Telecom's `INCLUDE_SELF_MANAGED_CALLS`, featuring granular toggle controls in Settings.
+- **Call Filtering & Granular Contact Control:** Intelligent auto-answering rules allowing the AI agent to answer only unsaved/unknown callers, all except selected contacts (blacklist/family exception), only selected contacts (whitelist), or full manual mode.
+- **WhatsApp Direct-Line VoIP Telephony:** Seamless compatibility with WhatsApp VoIP calls ensuring zero microphone mute interference, allowing the user to answer and converse directly with their own voice without AI interruption.
 
 ---
 
@@ -240,7 +240,7 @@ Set **AIo** as the default Phone / Calling app (`ROLE_DIALER`) in Android Settin
 
 | Artifact | File Name | SHA-256 Hash |
 | :--- | :--- | :--- |
-| Android Release APK | `AIo-v1.0.0.apk` | `7441FA0836BA41E8B1B1AC06B610FC22CD8B0456953CA0E28C75DDFB67AAE5F9` |
+| Android Release APK | `AIo-v1.0.0.apk` | `38672059902854C45FC825F4E2845FAC2860087D9779F2379C726F94F3FC5051` |
 
 ---
 

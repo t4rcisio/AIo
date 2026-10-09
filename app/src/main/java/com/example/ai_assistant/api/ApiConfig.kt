@@ -6,6 +6,40 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+enum class AutoAnswerRule(val id: String, val title: String, val description: String) {
+    UNSAVED_ONLY(
+        "unsaved_only",
+        "Apenas contatos não salvos",
+        "O assistente atende apenas números desconhecidos que não estão na sua agenda telefônica."
+    ),
+    ALL_EXCEPT_SELECTED(
+        "all_except_selected",
+        "Todos, exceto selecionados",
+        "O assistente atende todos os números, menos as pessoas selecionadas na sua lista de exceções."
+    ),
+    ONLY_SELECTED(
+        "only_selected",
+        "Apenas contatos selecionados",
+        "O assistente atende exclusivamente as ligações dos contatos selecionados na sua lista."
+    ),
+    ALL(
+        "all",
+        "Todos os números",
+        "O assistente atende chamadas de qualquer número telefônico automaticamente."
+    ),
+    DISABLED(
+        "disabled",
+        "Desativado",
+        "O assistente não atende nenhuma chamada automaticamente."
+    );
+
+    companion object {
+        fun fromId(id: String): AutoAnswerRule {
+            return values().firstOrNull { it.id == id || it.name.equals(id, ignoreCase = true) } ?: UNSAVED_ONLY
+        }
+    }
+}
+
 /**
  * Configurações completas das APIs de STT (Gemini / Whisper), LLM (DeepSeek) e TTS (Gemini / OpenAI).
  */
@@ -41,8 +75,10 @@ data class ApiSettings(
     val ttsResponseFormat: String = "pcm",
 
     // Comportamento Telefônico
-    val autoAnswer: Boolean = false,
-    val autoAnswerWhatsApp: Boolean = true,
+    val autoAnswer: Boolean = true,
+    val autoAnswerRule: AutoAnswerRule = AutoAnswerRule.UNSAVED_ONLY,
+    val selectedContacts: Set<String> = emptySet(),
+    val autoAnswerWhatsApp: Boolean = false,
     val autoSpeakerphone: Boolean = true,
     val pauseThresholdMs: Int = 800
 ) {
@@ -101,6 +137,8 @@ class ApiConfigManager(context: Context) {
         private const val KEY_TTS_FORMAT = "tts_response_format"
 
         private const val KEY_AUTO_ANSWER = "auto_answer"
+        private const val KEY_AUTO_ANSWER_RULE = "auto_answer_rule"
+        private const val KEY_SELECTED_CONTACTS = "selected_contacts"
         private const val KEY_AUTO_ANSWER_WHATSAPP = "auto_answer_whatsapp"
         private const val KEY_AUTO_SPEAKER = "auto_speakerphone"
         private const val KEY_PAUSE_MS = "pause_threshold_ms"
@@ -139,8 +177,10 @@ class ApiConfigManager(context: Context) {
             ttsApiKey = prefs.getString(KEY_TTS_KEY, "") ?: "",
             ttsResponseFormat = prefs.getString(KEY_TTS_FORMAT, "pcm") ?: "pcm",
 
-            autoAnswer = prefs.getBoolean(KEY_AUTO_ANSWER, false),
-            autoAnswerWhatsApp = prefs.getBoolean(KEY_AUTO_ANSWER_WHATSAPP, true),
+            autoAnswer = prefs.getBoolean(KEY_AUTO_ANSWER, true),
+            autoAnswerRule = AutoAnswerRule.fromId(prefs.getString(KEY_AUTO_ANSWER_RULE, "unsaved_only") ?: "unsaved_only"),
+            selectedContacts = prefs.getStringSet(KEY_SELECTED_CONTACTS, emptySet()) ?: emptySet(),
+            autoAnswerWhatsApp = prefs.getBoolean(KEY_AUTO_ANSWER_WHATSAPP, false),
             autoSpeakerphone = prefs.getBoolean(KEY_AUTO_SPEAKER, true),
             pauseThresholdMs = prefs.getInt(KEY_PAUSE_MS, 800)
         )
@@ -175,6 +215,8 @@ class ApiConfigManager(context: Context) {
             putString(KEY_TTS_FORMAT, newSettings.ttsResponseFormat)
 
             putBoolean(KEY_AUTO_ANSWER, newSettings.autoAnswer)
+            putString(KEY_AUTO_ANSWER_RULE, newSettings.autoAnswerRule.id)
+            putStringSet(KEY_SELECTED_CONTACTS, newSettings.selectedContacts)
             putBoolean(KEY_AUTO_ANSWER_WHATSAPP, newSettings.autoAnswerWhatsApp)
             putBoolean(KEY_AUTO_SPEAKER, newSettings.autoSpeakerphone)
             putInt(KEY_PAUSE_MS, newSettings.pauseThresholdMs)

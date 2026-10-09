@@ -17,6 +17,18 @@ class AICallInCallService : InCallService() {
 
     companion object {
         private const val TAG = "AICallInCallService"
+
+        fun sendDaemonMute(mute: Boolean) {
+            Thread {
+                try {
+                    java.net.Socket().use { s ->
+                        s.connect(java.net.InetSocketAddress("127.0.0.1", 28472), 500)
+                        val writer = java.io.PrintWriter(s.getOutputStream(), true)
+                        writer.println(if (mute) "MUTE_LOCAL_AUDIO" else "UNMUTE_LOCAL_AUDIO")
+                    }
+                } catch (ignored: Exception) {}
+            }.start()
+        }
     }
 
     // Armazena o endpoint ativo mais recente recebido via callback
@@ -50,18 +62,6 @@ class AICallInCallService : InCallService() {
         }
     }
 
-    private fun sendDaemonMute(mute: Boolean) {
-        Thread {
-            try {
-                java.net.Socket().use { s ->
-                    s.connect(java.net.InetSocketAddress("127.0.0.1", 28472), 500)
-                    val writer = java.io.PrintWriter(s.getOutputStream(), true)
-                    writer.println(if (mute) "MUTE_LOCAL_AUDIO" else "UNMUTE_LOCAL_AUDIO")
-                }
-            } catch (ignored: Exception) {}
-        }.start()
-    }
-
     private fun getCallState(call: Call): Int {
         return call.details?.state ?: @Suppress("DEPRECATION") call.state
     }
@@ -76,8 +76,40 @@ class AICallInCallService : InCallService() {
         val callId = CallRepository.registerCall(call)
         val currentState = getCallState(call)
 
+        val isWhatsAppCall = call.details?.hasProperty(Call.Details.PROPERTY_SELF_MANAGED) == true ||
+                call.details?.accountHandle?.componentName?.packageName?.contains("whatsapp", ignoreCase = true) == true
+
+        val phoneNumber = call.details?.handle?.schemeSpecificPart ?: "Desconhecido"
+        val callerName = call.details?.callerDisplayName?.takeIf { it.isNotBlank() }
+            ?: com.example.ai_assistant.contacts.ContactsHelper.getContactName(applicationContext, phoneNumber)
+            ?: "Sem Nome"
+
+        val apiSettings = com.example.ai_assistant.api.ApiConfigManager(applicationContext).settings.value
+
+        // Avaliação da regra de filtragem de chamada para o robô
+        val shouldBotHandleCall = if (isWhatsAppCall) {
+            // Chamadas de WhatsApp (VoIP) NUNCA são tratadas pelo robô, pois usam pipeline VoIP próprio
+            // e os canais de áudio de telefonia celular física (VOICE_DOWNLINK e AudioTrack baseband) produzem silêncio.
+            false
+        } else if (!apiSettings.autoAnswer) {
+            false
+        } else {
+            when (apiSettings.autoAnswerRule) {
+                com.example.ai_assistant.api.AutoAnswerRule.DISABLED -> false
+                com.example.ai_assistant.api.AutoAnswerRule.ALL -> true
+                com.example.ai_assistant.api.AutoAnswerRule.UNSAVED_ONLY ->
+                    !com.example.ai_assistant.contacts.ContactsHelper.isContactSaved(applicationContext, phoneNumber)
+                com.example.ai_assistant.api.AutoAnswerRule.ALL_EXCEPT_SELECTED ->
+                    !com.example.ai_assistant.contacts.ContactsHelper.isNumberInSelectedList(phoneNumber, apiSettings.selectedContacts)
+                com.example.ai_assistant.api.AutoAnswerRule.ONLY_SELECTED ->
+                    com.example.ai_assistant.contacts.ContactsHelper.isNumberInSelectedList(phoneNumber, apiSettings.selectedContacts)
+            }
+        }
+
+        CallRepository.setBotActiveForCall(shouldBotHandleCall)
+
         Log.i(TAG, "==================================================")
-        Log.i(TAG, "[UI CALL] Call added: $callId | State: ${stateToString(currentState)}")
+        Log.i(TAG, "[UI CALL] Call added: $callId | State: ${stateToString(currentState)} | WhatsApp: $isWhatsAppCall | BotHandle: $shouldBotHandleCall | Regra: ${apiSettings.autoAnswerRule.name}")
         logCallDetails(call)
         Log.i(TAG, "==================================================")
 
@@ -100,26 +132,40 @@ class AICallInCallService : InCallService() {
                             applicationContext,
                             com.example.ai_assistant.api.ApiConfigManager(applicationContext)
                         )
-                        if (convManager.isAutoModeEnabled.value) {
+
+                        val isBotActive = CallRepository.isBotActiveForCall.value && !isWhatsAppCall
+
+                        if (isBotActive) {
+                            Log.i(TAG, "[UI CALL] Assistente AIô ativado para atender esta chamada.")
+                            convManager.setAutoModeEnabled(true)
                             try {
                                 setMuted(true)
                                 CallRepository.setCallMicrophoneMute(true)
                             } catch (e: Exception) {
                                 Log.w(TAG, "Erro ao mutar microfone: ${e.message}")
                             }
-                        }
-                        CallStateManager.setCallState(true, "ACTIVE")
-                        logAudioEndpoints("Chamada Passou para STATE_ACTIVE")
-                        try {
-                            val am = getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
-                            am?.isSpeakerphoneOn = false
-                            setAudioRoute(android.telecom.CallAudioState.ROUTE_EARPIECE)
-                            CallRepository.setAudioRoute(android.telecom.CallAudioState.ROUTE_EARPIECE)
-                            // Envia ordem ao Daemon Shell para mutar STREAM_VOICE_CALL via cmd audio (UID 2000)
-                            sendDaemonMute(true)
-                            Log.i(TAG, "[SILÊNCIO LOCAL TOTAL] Alto-falante desativado e mute total aplicado no sistema.")
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Falha ao silenciar áudio local: ${e.message}")
+                            CallStateManager.setCallState(true, "ACTIVE")
+                            logAudioEndpoints("Chamada Passou para STATE_ACTIVE (Robô)")
+                            try {
+                                val am = getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+                                am?.isSpeakerphoneOn = false
+                                setAudioRoute(android.telecom.CallAudioState.ROUTE_EARPIECE)
+                                CallRepository.setAudioRoute(android.telecom.CallAudioState.ROUTE_EARPIECE)
+                                sendDaemonMute(true)
+                                Log.i(TAG, "[SILÊNCIO LOCAL TOTAL] Alto-falante desativado e mute local aplicado.")
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Falha ao silenciar áudio local: ${e.message}")
+                            }
+                        } else {
+                            Log.i(TAG, "[UI CALL] Chamada gerenciada pelo USUÁRIO (WhatsApp=$isWhatsAppCall). Microfone liberado.")
+                            convManager.setAutoModeEnabled(false)
+                            try {
+                                setMuted(false)
+                                CallRepository.setCallMicrophoneMute(false)
+                            } catch (ignored: Exception) {}
+                            sendDaemonMute(false)
+                            CallStateManager.setCallState(true, "ACTIVE")
+                            logAudioEndpoints("Chamada Passou para STATE_ACTIVE (Usuário)")
                         }
                     }
                     Call.STATE_DISCONNECTED -> {
@@ -131,6 +177,7 @@ class AICallInCallService : InCallService() {
                             CallRepository.setCallMicrophoneMute(false)
                         } catch (ignored: Exception) {}
                         sendDaemonMute(false)
+                        CallRepository.setBotActiveForCall(false)
                     }
                 }
             }
@@ -141,15 +188,12 @@ class AICallInCallService : InCallService() {
             }
         })
 
-        // Diagnóstico de áudio da Etapa 2
+        // Diagnóstico de áudio
         logAudioEndpoints("Chamada Entrou (onCallAdded)")
 
         // Se a chamada está tocando (STATE_RINGING), exibe a notificação e abre a IncomingCallActivity
         if (currentState == Call.STATE_RINGING || currentState == Call.STATE_SIMULATED_RINGING) {
             CallStateManager.setCallState(false, "RINGING")
-
-            val phoneNumber = call.details?.handle?.schemeSpecificPart ?: "Desconhecido"
-            val callerName = call.details?.callerDisplayName?.takeIf { it.isNotBlank() } ?: "Sem Nome"
 
             // 1. Notificação com FullScreenIntent para tela bloqueada/background
             CallNotificationManager.showIncomingCallNotification(
@@ -162,19 +206,11 @@ class AICallInCallService : InCallService() {
             // 2. Abrir diretamente a IncomingCallActivity
             launchCallScreen(callId)
 
-            val isWhatsAppCall = call.details?.hasProperty(Call.Details.PROPERTY_SELF_MANAGED) == true ||
-                    call.details?.accountHandle?.componentName?.packageName?.contains("whatsapp", ignoreCase = true) == true
-
-            val apiSettings = com.example.ai_assistant.api.ApiConfigManager(applicationContext).settings.value
-            val shouldAutoAnswer = if (isWhatsAppCall) {
-                apiSettings.autoAnswerWhatsApp
-            } else {
-                apiSettings.autoAnswer
-            }
-
-            if (shouldAutoAnswer) {
-                Log.i(TAG, "[AUTO ANSWER] Atendendo chamada automaticamente (${if (isWhatsAppCall) "WhatsApp VoIP" else "Operadora Celular"})...")
+            if (shouldBotHandleCall) {
+                Log.i(TAG, "[AUTO ANSWER] Atendendo chamada automaticamente com o robô de IA (Regra: ${apiSettings.autoAnswerRule.name})...")
                 call.answer(android.telecom.VideoProfile.STATE_AUDIO_ONLY)
+            } else {
+                Log.i(TAG, "[CALL TOQUE] Chamada mantida tocando para o USUÁRIO atender pessoalmente (WhatsApp=$isWhatsAppCall, Regra=${apiSettings.autoAnswerRule.name}).")
             }
         } else {
             val isActive = currentState == Call.STATE_ACTIVE
@@ -197,7 +233,12 @@ class AICallInCallService : InCallService() {
         CallRepository.unregisterCall(call)
         CallNotificationManager.cancelNotification(applicationContext)
         CallStateManager.setCallState(false, "NONE")
+        try {
+            setMuted(false)
+            CallRepository.setCallMicrophoneMute(false)
+        } catch (ignored: Exception) {}
         sendDaemonMute(false)
+        CallRepository.setBotActiveForCall(false)
     }
 
     // =========================================================================

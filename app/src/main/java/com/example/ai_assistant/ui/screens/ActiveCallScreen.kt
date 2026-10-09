@@ -68,14 +68,20 @@ fun ActiveCallScreen(
         "%02d:%02d".format(mins, secs)
     }
 
-    // Identificação do estado atual: Ouvindo, Processando, Respondendo
-    val (statusLabel, statusBg, statusColor) = when (callState) {
-        CallConversationState.LISTENING_REMOTE -> Triple("Ouvindo", AioSelection, AioPineGreen)
-        CallConversationState.TRANSCRIBING, CallConversationState.GENERATING -> Triple("Processando", AioSelection, AioGraphite)
-        CallConversationState.SPEAKING -> Triple("Respondendo", AioPineGreen, Color.White)
-        CallConversationState.CALL_ACTIVE -> Triple("Em linha", AioSelection, AioPineGreen)
-        CallConversationState.ERROR -> Triple("Atenção", Color(0xFFFFEBEE), AioError)
-        else -> Triple("Conectado", AioSelection, AioPineGreen)
+    // Identificação do estado atual: Ouvindo, Processando, Respondendo, WhatsApp ou Modo Manual
+    val (statusLabel, statusBg, statusColor) = if (isWhatsApp) {
+        Triple("WhatsApp • Fale Direto", Color(0xFFE8F5E9), Color(0xFF2E7D32))
+    } else if (!isAutoModeEnabled) {
+        Triple("Você no Comando (IA em Pausa)", AioSurfaceVariant, AioTextSecondary)
+    } else {
+        when (callState) {
+            CallConversationState.LISTENING_REMOTE -> Triple("Ouvindo", AioSelection, AioPineGreen)
+            CallConversationState.TRANSCRIBING, CallConversationState.GENERATING -> Triple("Processando", AioSelection, AioGraphite)
+            CallConversationState.SPEAKING -> Triple("Respondendo", AioPineGreen, Color.White)
+            CallConversationState.CALL_ACTIVE -> Triple("Em linha", AioSelection, AioPineGreen)
+            CallConversationState.ERROR -> Triple("Atenção", Color(0xFFFFEBEE), AioError)
+            else -> Triple("Conectado", AioSelection, AioPineGreen)
+        }
     }
 
     val listState = rememberLazyListState()
@@ -236,8 +242,15 @@ fun ActiveCallScreen(
                         .padding(20.dp),
                     contentAlignment = Alignment.Center
                 ) {
+                    val emptyNotice = if (isWhatsApp) {
+                        "Chamada do WhatsApp (VoIP) em andamento.\nFale diretamente usando o microfone do seu aparelho."
+                    } else if (!isAutoModeEnabled) {
+                        "Assistente em pausa.\nVocê está no comando: fale diretamente usando o seu microfone."
+                    } else {
+                        "Aguardando fala do interlocutor..."
+                    }
                     Text(
-                        text = "Aguardando fala do interlocutor...",
+                        text = emptyNotice,
                         fontSize = 14.sp,
                         color = AioTextSecondary,
                         textAlign = TextAlign.Center

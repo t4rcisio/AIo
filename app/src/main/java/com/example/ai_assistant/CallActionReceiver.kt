@@ -30,7 +30,8 @@ class CallActionReceiver : BroadcastReceiver() {
 
         when (action) {
             ACTION_ANSWER -> {
-                Log.i(TAG, "[UI CALL] Answer pressed via Notification")
+                Log.i(TAG, "[UI CALL] Answer pressed via Notification pelo usuário")
+                CallRepository.setBotActiveForCall(false)
                 call.answer(VideoProfile.STATE_AUDIO_ONLY)
                 CallNotificationManager.cancelNotification(context)
 

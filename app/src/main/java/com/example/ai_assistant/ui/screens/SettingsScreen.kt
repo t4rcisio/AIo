@@ -48,6 +48,9 @@ import kotlinx.coroutines.withContext
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import com.example.ai_assistant.contacts.ContactsHelper
+import com.example.ai_assistant.contacts.ContactItem
+import com.example.ai_assistant.api.AutoAnswerRule
 
 enum class SettingsSection(val title: String) {
     ATENDIMENTO("Atendimento"),
@@ -63,8 +66,10 @@ enum class SettingsSection(val title: String) {
 fun SettingsScreen(
     isDefaultDialer: Boolean,
     hasAudioPermission: Boolean,
+    hasContactsPermission: Boolean = false,
     onRequestDefaultDialer: () -> Unit,
     onRequestAudioPermission: () -> Unit,
+    onRequestContactsPermission: () -> Unit = {},
     apiConfigManager: ApiConfigManager,
     audioPlayer: CallAudioPlayer,
     personas: List<Persona>,
@@ -195,8 +200,10 @@ fun SettingsScreen(
                         AtendimentoSection(
                             isDefaultDialer = isDefaultDialer,
                             hasAudioPermission = hasAudioPermission,
+                            hasContactsPermission = hasContactsPermission,
                             onRequestDefaultDialer = onRequestDefaultDialer,
                             onRequestAudioPermission = onRequestAudioPermission,
+                            onRequestContactsPermission = onRequestContactsPermission,
                             apiConfigManager = apiConfigManager
                         )
                     }
@@ -259,16 +266,27 @@ fun SettingsScreen(
 private fun AtendimentoSection(
     isDefaultDialer: Boolean,
     hasAudioPermission: Boolean,
+    hasContactsPermission: Boolean,
     onRequestDefaultDialer: () -> Unit,
     onRequestAudioPermission: () -> Unit,
+    onRequestContactsPermission: () -> Unit,
     apiConfigManager: ApiConfigManager
 ) {
     val settings by apiConfigManager.settings.collectAsState()
+    var showAddContactDialog by remember { mutableStateOf(false) }
 
-    // 1. Discador Padrão
+    // 1. Grupo de Permissões
+    Text(
+        text = "Permissões do Sistema",
+        fontSize = 15.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = AioGraphite
+    )
+
+    // Discador Padrão
     SettingsCard(
         title = "Discador Padrão",
-        subtitle = if (isDefaultDialer) "Ativo como aplicativo principal de telefone" else "Necessário para atender ligações recebidas",
+        subtitle = if (isDefaultDialer) "Ativo como aplicativo principal de telefone" else "Necessário para interceptar e atender ligações",
         trailing = {
             if (!isDefaultDialer) {
                 Button(
@@ -285,7 +303,7 @@ private fun AtendimentoSection(
         }
     )
 
-    // 2. Permissão de Microfone
+    // Permissão de Microfone
     SettingsCard(
         title = "Permissão de Microfone",
         subtitle = if (hasAudioPermission) "Acesso ao áudio concedido" else "Necessário para a voz do assistente",
@@ -305,10 +323,39 @@ private fun AtendimentoSection(
         }
     )
 
-    // 3. Atendimento Automático (Celular)
+    // Permissão de Contatos (Agenda)
     SettingsCard(
-        title = "Atendimento Automático (Operadora)",
-        subtitle = "Atender ligações normais via chip SIM imediatamente ao tocar",
+        title = "Acesso à Agenda (Contatos)",
+        subtitle = if (hasContactsPermission) "Agenda sincronizada para filtragem de chamadas" else "Permite ao assistente identificar se o número é de um amigo salvo",
+        trailing = {
+            if (!hasContactsPermission) {
+                Button(
+                    onClick = onRequestContactsPermission,
+                    colors = ButtonDefaults.buttonColors(containerColor = AioPineGreen)
+                ) {
+                    Text("Permitir")
+                }
+            } else {
+                Surface(shape = RoundedCornerShape(8.dp), color = AioSelection) {
+                    Text("Concedida", color = AioPineGreen, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+                }
+            }
+        }
+    )
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    // 2. Atendimento Automático Geral
+    Text(
+        text = "Automação com IA",
+        fontSize = 15.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = AioGraphite
+    )
+
+    SettingsCard(
+        title = "Atendimento Automático com IA",
+        subtitle = if (settings.autoAnswer) "O assistente atenderá chamadas conforme a regra selecionada" else "Desativado: o telefone sempre tocará para você atender pessoalmente",
         trailing = {
             Switch(
                 checked = settings.autoAnswer,
@@ -318,17 +365,477 @@ private fun AtendimentoSection(
         }
     )
 
-    // 4. Chamadas do WhatsApp (VoIP)
-    SettingsCard(
-        title = "Atender Chamadas do WhatsApp",
-        subtitle = "Permite que o assistente atenda e converse em ligações recebidas no WhatsApp",
-        trailing = {
-            Switch(
-                checked = settings.autoAnswerWhatsApp,
-                onCheckedChange = { apiConfigManager.updateSetting { copy(autoAnswerWhatsApp = it) } },
-                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = AioPineGreen)
+    // 3. Regras de Filtragem de Chamadas
+    if (settings.autoAnswer) {
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Quem o assistente deve atender?",
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = AioGraphite
+        )
+
+        val rules = listOf(
+            AutoAnswerRule.UNSAVED_ONLY to "Recomendado",
+            AutoAnswerRule.ALL_EXCEPT_SELECTED to null,
+            AutoAnswerRule.ONLY_SELECTED to null,
+            AutoAnswerRule.ALL to null
+        )
+
+        rules.forEach { (rule, tag) ->
+            val isSelected = settings.autoAnswerRule == rule
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = if (isSelected) AioSelection else AioSurface,
+                border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) AioPineGreen else AioOutline),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        apiConfigManager.updateSetting { copy(autoAnswerRule = rule) }
+                    }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = isSelected,
+                        onClick = { apiConfigManager.updateSetting { copy(autoAnswerRule = rule) } },
+                        colors = RadioButtonDefaults.colors(selectedColor = AioPineGreen)
+                    )
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = rule.title,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isSelected) AioPineGreen else AioGraphite
+                            )
+                            if (tag != null) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (isSelected) AioPineGreen else AioSurfaceVariant
+                                ) {
+                                    Text(
+                                        text = tag,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) Color.White else AioTextSecondary,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = rule.description,
+                            fontSize = 12.sp,
+                            color = AioTextSecondary,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        // 4. Lista de Contatos Selecionados (Quando a regra for ALL_EXCEPT_SELECTED ou ONLY_SELECTED)
+        if (settings.autoAnswerRule == AutoAnswerRule.ALL_EXCEPT_SELECTED || settings.autoAnswerRule == AutoAnswerRule.ONLY_SELECTED) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = AioSurface,
+                border = androidx.compose.foundation.BorderStroke(1.dp, AioOutline),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = if (settings.autoAnswerRule == AutoAnswerRule.ALL_EXCEPT_SELECTED) "Contatos Bloqueados / Exceções" else "Contatos Permitidos",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = AioGraphite
+                            )
+                            Text(
+                                text = "${settings.selectedContacts.size} contato(s) configurado(s)",
+                                fontSize = 12.sp,
+                                color = AioTextSecondary
+                            )
+                        }
+
+                        Button(
+                            onClick = { showAddContactDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = AioPineGreen),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Add,
+                                contentDescription = "Adicionar",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Adicionar", fontSize = 13.sp)
+                        }
+                    }
+
+                    if (settings.selectedContacts.isEmpty()) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = AioSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Nenhum contato na lista. Toque em 'Adicionar' para selecionar da agenda ou digitar um número.",
+                                fontSize = 12.sp,
+                                color = AioTextSecondary,
+                                modifier = Modifier.padding(14.dp)
+                            )
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            settings.selectedContacts.forEach { rawEntry ->
+                                val displayName = if (rawEntry.contains(":::")) rawEntry.substringBefore(":::") else "Contato"
+                                val displayPhone = if (rawEntry.contains(":::")) rawEntry.substringAfter(":::") else rawEntry
+
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = AioBackground,
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, AioOutline),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = AioSelection,
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Icon(
+                                                        imageVector = Icons.Outlined.Person,
+                                                        contentDescription = null,
+                                                        tint = AioPineGreen,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column {
+                                                Text(
+                                                    text = displayName,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = AioGraphite
+                                                )
+                                                Text(
+                                                    text = displayPhone,
+                                                    fontSize = 12.sp,
+                                                    color = AioTextSecondary
+                                                )
+                                            }
+                                        }
+
+                                        IconButton(
+                                            onClick = {
+                                                val updated = settings.selectedContacts - rawEntry
+                                                apiConfigManager.updateSetting { copy(selectedContacts = updated) }
+                                            },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.DeleteOutline,
+                                                contentDescription = "Remover contato",
+                                                tint = AioError,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    // 5. Chamadas do WhatsApp (VoIP)
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = AioSurface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, AioOutline),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Outlined.PhoneInTalk,
+                        contentDescription = null,
+                        tint = AioPineGreen,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Chamadas do WhatsApp (VoIP)",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = AioGraphite
+                    )
+                }
+
+                Surface(shape = RoundedCornerShape(8.dp), color = AioSelection) {
+                    Text(
+                        text = "Você fala direto",
+                        color = AioPineGreen,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "O assistente de IA opera nos canais de telefonia física celular (chip SIM). Chamadas do WhatsApp utilizam protocolo VoIP do aplicativo, portanto são entregues diretamente para você atender e conversar com sua voz pelo microfone do aparelho, sem mudo e sem interrupções do robô.",
+                fontSize = 12.sp,
+                color = AioTextSecondary,
+                lineHeight = 17.sp
             )
         }
+    }
+
+    // Dialog de Adicionar Contato
+    if (showAddContactDialog) {
+        AddContactDialog(
+            hasContactsPermission = hasContactsPermission,
+            onRequestContactsPermission = onRequestContactsPermission,
+            onDismiss = { showAddContactDialog = false },
+            onAddContact = { entry ->
+                val current = settings.selectedContacts
+                apiConfigManager.updateSetting { copy(selectedContacts = current + entry) }
+                showAddContactDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun AddContactDialog(
+    hasContactsPermission: Boolean,
+    onRequestContactsPermission: () -> Unit,
+    onDismiss: () -> Unit,
+    onAddContact: (String) -> Unit
+) {
+    val context = LocalContext.current
+    var searchQuery by remember { mutableStateOf("") }
+    var manualNumber by remember { mutableStateOf("") }
+    var contactsList by remember { mutableStateOf<List<ContactItem>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    LaunchedEffect(hasContactsPermission, searchQuery) {
+        if (hasContactsPermission) {
+            isLoading = true
+            withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val list = ContactsHelper.getDeviceContacts(context, searchQuery)
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    contactsList = list
+                    isLoading = false
+                }
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Adicionar Contato", fontWeight = FontWeight.Bold, color = AioGraphite, fontSize = 18.sp)
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (!hasContactsPermission) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFFFF3E0),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "Permissão de contatos necessária para listar a sua agenda.",
+                                fontSize = 12.sp,
+                                color = Color(0xFFE65100)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = onRequestContactsPermission,
+                                colors = ButtonDefaults.buttonColors(containerColor = AioPineGreen)
+                            ) {
+                                Text("Conceder Permissão", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                } else {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Buscar nome ou telefone...", fontSize = 13.sp) },
+                        leadingIcon = {
+                            Icon(imageVector = Icons.Outlined.Search, contentDescription = null, tint = AioTextSecondary)
+                        },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(imageVector = Icons.Outlined.Close, contentDescription = "Limpar", tint = AioTextSecondary)
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (isLoading) {
+                        Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = AioPineGreen, modifier = Modifier.size(28.dp))
+                        }
+                    } else if (contactsList.isEmpty()) {
+                        Text(
+                            text = if (searchQuery.isBlank()) "Nenhum contato encontrado na agenda." else "Nenhum contato coincide com a busca.",
+                            fontSize = 12.sp,
+                            color = AioTextSecondary,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f, fill = false)
+                                .heightIn(max = 220.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(contactsList) { item ->
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = AioSurfaceVariant,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            onAddContact("${item.name}:::${item.number}")
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Person,
+                                            contentDescription = null,
+                                            tint = AioPineGreen,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = item.name,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = AioGraphite
+                                            )
+                                            Text(
+                                                text = item.number,
+                                                fontSize = 12.sp,
+                                                color = AioTextSecondary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = AioOutline)
+
+                // Opção de inserir número manual
+                Text(
+                    text = "Ou digite um número manualmente:",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = AioGraphite
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = manualNumber,
+                        onValueChange = { manualNumber = it },
+                        placeholder = { Text("Ex: 11999998888", fontSize = 12.sp) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    Button(
+                        onClick = {
+                            if (manualNumber.isNotBlank()) {
+                                onAddContact("Avulso:::$manualNumber")
+                            }
+                        },
+                        enabled = manualNumber.isNotBlank(),
+                        colors = ButtonDefaults.buttonColors(containerColor = AioPineGreen),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Adicionar", fontSize = 12.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Fechar", color = AioTextSecondary)
+            }
+        },
+        containerColor = AioSurface,
+        shape = RoundedCornerShape(20.dp)
     )
 }
 
