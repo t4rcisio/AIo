@@ -172,8 +172,8 @@ fun ActiveCallScreen(
             }
         }
 
-        // Aviso em destaque se o módulo ADB/Daemon estiver offline durante a ligação
-        if (isDaemonOffline || callState == CallConversationState.ERROR) {
+        // Aviso em destaque se o módulo de áudio estiver offline e ocorrer erro durante a ligação
+        if (isDaemonOffline && callState == CallConversationState.ERROR) {
             Surface(
                 shape = RoundedCornerShape(14.dp),
                 color = Color(0xFFFFEBEE),
@@ -194,7 +194,7 @@ fun ActiveCallScreen(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "Módulo Privilegiado Offline (Wi-Fi desconectou). O assistente não conseguirá ouvir a chamada. Fale normalmente.",
+                        text = "Módulo de Áudio offline. O assistente não conseguirá ouvir a chamada. Fale normalmente.",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = AioError,

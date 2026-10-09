@@ -102,7 +102,8 @@ class IncomingCallActivity : ComponentActivity() {
                 val callConvSpeech by callConvManager.isSpeechDetected.collectAsState()
                 val adbInfo by adbManager.adbInfo.collectAsState()
                 val daemonInfo by shellDaemonManager.daemonInfo.collectAsState()
-                val isDaemonOffline = daemonInfo.state != com.example.ai_assistant.shell.ShellDaemonState.RUNNING
+                val diagnostics by callConvManager.diagnostics.collectAsState()
+                val isDaemonOffline = daemonInfo.state != com.example.ai_assistant.shell.ShellDaemonState.RUNNING && !diagnostics.isDownlinkActive
 
                 var hasEverBeenActiveOrRinging by remember { mutableStateOf(false) }
 

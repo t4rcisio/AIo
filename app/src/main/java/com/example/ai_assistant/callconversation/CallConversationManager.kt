@@ -499,7 +499,7 @@ class CallConversationManager(
                 Log.e(TAG, "[DAEMON STREAM] Conexão com daemon falhou: ${e.message}")
                 if (CallStateManager.isCallActive.value) {
                     withContext(Dispatchers.Main) {
-                        _errorMessage.value = "Áudio remoto indisponível (Módulo Privilegiado offline ao sair do Wi-Fi)."
+                        _errorMessage.value = "Áudio remoto indisponível (falha na conexão com o daemon de áudio)."
                         _state.value = CallConversationState.ERROR
                         _diagnostics.value = _diagnostics.value.copy(
                             isDownlinkActive = false
