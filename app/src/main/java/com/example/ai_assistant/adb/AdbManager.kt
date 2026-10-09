@@ -241,19 +241,6 @@ class AdbManager(private val context: Context) {
                 errorMessage = null
             )
 
-            // Se conectou através de uma porta dinâmica de depuração sem fio (ex: 35000-45000),
-            // solicita ao daemon para ligar o modo TCP na porta 5555.
-            if (port != 5555) {
-                scope.launch {
-                    try {
-                        delay(200L)
-                        transport.switchTcpMode(5555)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "[AICALL ADB] Não foi possível ativar tcpip 5555: ${e.message}")
-                    }
-                }
-            }
-
             // Executa diagnóstico automaticamente
             testConnectionInternal()
             true
@@ -411,7 +398,45 @@ class AdbManager(private val context: Context) {
     }
 
     val isConnected: Boolean
-        get() = transport.isConnected
+        get() {
+            val connected = transport.isConnected
+            if (!connected && _adbInfo.value.state == AdbState.CONNECTED) {
+                _adbInfo.value = _adbInfo.value.copy(
+                    state = AdbState.DISCONNECTED,
+                    statusMessage = "Desconectado"
+                )
+            }
+            return connected
+        }
+
+    /**
+     * Tenta garantir que a conexão ADB esteja ativa, tentando reconectar na porta mDNS ou no cache.
+     */
+    suspend fun ensureConnected(): Boolean {
+        if (transport.isConnected) return true
+
+        val mdnsPort = _adbInfo.value.discoveredConnectPort
+        if (mdnsPort != null && mdnsPort in 1024..65535) {
+            if (tryConnect(activeHost, mdnsPort) || (activeHost != "127.0.0.1" && tryConnect("127.0.0.1", mdnsPort))) {
+                return true
+            }
+        }
+
+        val savedPort = prefs.getInt(KEY_LAST_CONNECT_PORT, -1)
+        if (savedPort in 1024..65535) {
+            if (tryConnect("127.0.0.1", savedPort)) {
+                return true
+            }
+        }
+
+        if (isPortOpen("127.0.0.1", 5555, timeoutMs = 60)) {
+            if (tryConnect("127.0.0.1", 5555)) {
+                return true
+            }
+        }
+
+        return transport.isConnected
+    }
 
     suspend fun executeCommand(command: String): Result<String> {
         return transport.executeCommand(command)

@@ -177,8 +177,8 @@ class ShellDaemonManager(
                 delay(400L)
             }
 
-            // 2. Verifica se a conexão ADB está estabelecida
-            if (!adbManager.isConnected) {
+            // 2. Verifica se a conexão ADB está estabelecida ou tenta reconectar
+            if (!adbManager.isConnected && !adbManager.ensureConnected()) {
                 val err = "ADB local não conectado. Conecte o ADB local antes de iniciar o daemon."
                 log("[DAEMON] $err")
                 _daemonInfo.value = _daemonInfo.value.copy(

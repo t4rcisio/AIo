@@ -240,7 +240,7 @@ Set **AIo** as the default Phone / Calling app (`ROLE_DIALER`) in Android Settin
 
 | Artifact | File Name | SHA-256 Hash |
 | :--- | :--- | :--- |
-| Android Debug APK | `app-debug.apk` | `AD7A72FEDFDE85618E01B143A8A65751674AFC95A9574151EAC156D8A1BEC638` |
+| Android Debug APK | `app-debug.apk` | `828DC7E3DDF7E2C0A68046A9ED2FE3771A7ED92E934C1417F0596B39478171C7` |
 
 ---
 
