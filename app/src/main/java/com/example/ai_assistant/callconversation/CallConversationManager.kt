@@ -191,6 +191,7 @@ class CallConversationManager(
     private var silenceDurationMs = 0
     private var speechDurationMs = 0L
     private var noiseFloor = 0.0
+    private var consecutiveSpeechChunks = 0
 
     // Contadores de Isolamento
     @Volatile
@@ -539,6 +540,17 @@ class CallConversationManager(
         val numSamples = chunk.size / 2
         if (numSamples == 0) return
 
+        // 1. Proteção de Eco/Sidetone: Enquanto o robô estiver injetando voz no uplink da chamada,
+        // silencia a detecção de fala do downlink para não escutar o próprio eco nem acumular ruídos
+        if (audioPlayer.isPlaying.value) {
+            silenceDurationMs = 0
+            speechDurationMs = 0L
+            hasActiveSpeech = false
+            consecutiveSpeechChunks = 0
+            utteranceBuffer.reset()
+            return
+        }
+
         var sumSquares = 0.0
         for (i in 0 until numSamples) {
             val low = chunk[i * 2].toInt() and 0xFF
@@ -555,13 +567,22 @@ class CallConversationManager(
         if (noiseFloor == 0.0) {
             noiseFloor = rms
         } else if (rms < noiseFloor) {
-            noiseFloor = noiseFloor * 0.90 + rms * 0.10
+            noiseFloor = noiseFloor * 0.85 + rms * 0.15
         } else {
-            noiseFloor = noiseFloor * 0.998 + rms * 0.002
+            noiseFloor = noiseFloor * 0.995 + rms * 0.005
         }
 
-        val dynamicThreshold = maxOf(85.0, noiseFloor + 45.0)
-        val isSpeech = rms >= dynamicThreshold
+        // Calibração robusta para telefonia celular (filtra chiado de fundo do codec e estática)
+        val dynamicThreshold = maxOf(135.0, noiseFloor + 55.0)
+        val isChunkSpeech = rms >= dynamicThreshold
+
+        if (isChunkSpeech) {
+            consecutiveSpeechChunks++
+        } else {
+            consecutiveSpeechChunks = 0
+        }
+
+        val isSpeech = isChunkSpeech && (consecutiveSpeechChunks >= 2 || hasActiveSpeech)
         _isSpeechDetected.value = isSpeech
 
         if (isSpeech) {
@@ -570,8 +591,6 @@ class CallConversationManager(
             isRemoteSpeaking = true
             speechDurationMs += chunkDurationMs
             utteranceBuffer.write(chunk)
-
-            // O assistente SEMPRE conclui a frase inteira sem ser interrompido pelo áudio da linha.
 
             val durationSec = speechDurationMs / 1000f
             _partialTranscript.value = "Ouvindo interlocutor (${String.format("%.1f", durationSec)}s)..."
@@ -584,22 +603,31 @@ class CallConversationManager(
                 utteranceBuffer.write(chunk)
 
                 val pauseThreshold = apiConfigManager.settings.value.pauseThresholdMs
-                val shouldCut = (silenceDurationMs >= pauseThreshold && utteranceBuffer.size() >= 12800) || speechDurationMs >= 8000L
+                val shouldCut = (silenceDurationMs >= pauseThreshold && utteranceBuffer.size() >= 11200) || speechDurationMs >= 8000L
 
                 if (shouldCut) {
                     val fullUtteranceBytes = utteranceBuffer.toByteArray()
                     val currentSpeechMs = speechDurationMs
                     val speechEndTime = System.currentTimeMillis() - silenceDurationMs
 
-                    Log.i(TAG, ">>> [PAUSA DETECTADA] Fala do interlocutor: ${fullUtteranceBytes.size} bytes (${currentSpeechMs}ms). Despachando para STT API...")
-
                     utteranceBuffer.reset()
                     hasActiveSpeech = false
                     isRemoteSpeaking = false
                     silenceDurationMs = 0
                     speechDurationMs = 0L
+                    consecutiveSpeechChunks = 0
 
-                    processFinalRemoteUtterance(fullUtteranceBytes, currentSpeechMs, speechEndTime)
+                    // Descarta ruídos ou estalos curtos (< 350ms)
+                    if (currentSpeechMs >= 350L && fullUtteranceBytes.size >= 11200) {
+                        Log.i(TAG, ">>> [PAUSA DETECTADA] Fala do interlocutor: ${fullUtteranceBytes.size} bytes (${currentSpeechMs}ms). Despachando para STT API...")
+                        processFinalRemoteUtterance(fullUtteranceBytes, currentSpeechMs, speechEndTime)
+                    } else {
+                        Log.d(TAG, "[VAD] Trecho descartado por duração insuficiente ($currentSpeechMs ms)")
+                        if (!isLlmBusy) {
+                            _partialTranscript.value = ""
+                            _state.value = CallConversationState.LISTENING_REMOTE
+                        }
+                    }
                 }
             }
         }
@@ -669,12 +697,15 @@ class CallConversationManager(
             Log.i(TAG, "[REMOTE STT SUCESSO] ($segmentId, latência: ${sttLatency}ms): \"$trimmedText\"")
 
             val wasBusy = accumulatorMutex.withLock {
-                if (isLlmBusy) {
+                if (isLlmBusy || audioPlayer.isPlaying.value) {
+                    if (speechAccumulator.length > 150) {
+                        speechAccumulator.clear()
+                    }
                     if (speechAccumulator.isNotEmpty()) {
                         speechAccumulator.append(" ")
                     }
                     speechAccumulator.append(trimmedText)
-                    Log.i(TAG, "[ACCUMULATOR] LLM ocupado. Retido: \"$speechAccumulator\"")
+                    Log.i(TAG, "[ACCUMULATOR] Robô ocupado. Retido: \"$speechAccumulator\"")
                     true
                 } else {
                     isLlmBusy = true
@@ -883,6 +914,7 @@ class CallConversationManager(
         isRemoteSpeaking = false
         silenceDurationMs = 0
         speechDurationMs = 0L
+        consecutiveSpeechChunks = 0
         _partialTranscript.value = ""
         _isSpeechDetected.value = false
         _liveRms.value = 0f

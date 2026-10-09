@@ -20,7 +20,7 @@ class SentenceStreamSynthesizer(
 ) {
     companion object {
         private const val TAG = "SentenceSynthesizer"
-        private const val MIN_SENTENCE_CHARS = 45
+        private const val MIN_SENTENCE_CHARS = 6
         private val TERMINAL_PUNCTUATION = setOf('.', '!', '?', '\n', ':')
     }
 
@@ -72,9 +72,7 @@ class SentenceStreamSynthesizer(
                 if (c == '.' && i > 0 && i + 1 < current.length && current[i - 1].isDigit() && current[i + 1].isDigit()) {
                     continue
                 }
-                // Evita pausas artificiais em exclamações ou frases curtas (ex: "Fechou, sexta então!", "Salve, mano!")
-                // Só fatia se a sentença acumulada até o momento tiver pelo menos MIN_SENTENCE_CHARS (45 caracteres)
-                // OU se for quebra explícita de linha (\n).
+                // Sintetiza frases curtas ou sentenças com pontuação terminal sem reter no buffer
                 val isLongEnough = i >= MIN_SENTENCE_CHARS
                 val isExplicitNewline = c == '\n'
 
@@ -85,8 +83,8 @@ class SentenceStreamSynthesizer(
                         break
                     }
                 }
-            } else if ((c == ',' || c == ';') && i >= 75) {
-                // Se a oração for muito longa sem pontuação terminal, divide em vírgula ou ponto-e-vírgula
+            } else if ((c == ',' || c == ';') && i >= 35) {
+                // Se a oração for longa sem pontuação terminal, divide em vírgula para adiantar síntese
                 if (i + 1 < current.length && current[i + 1].isWhitespace()) {
                     splitIndex = i + 1
                     break
