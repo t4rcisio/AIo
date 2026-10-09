@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/t4rcisio/AIo/releases/download/v1.0.0/AIo-v1.0.0-debug.apk"><strong>Download APK</strong></a> •
+  <a href="https://github.com/t4rcisio/AIo/releases/download/v1.0.0/AIo-v1.0.0.apk"><strong>Download APK</strong></a> •
   <a href="CELLULAR_CALL_AI_ARCHITECTURE_SPEC.md"><strong>Especificação de Arquitetura</strong></a> •
   <a href="#getting-started"><strong>Guia de Instalação</strong></a> •
   <a href="#author--contact"><strong>Autor & Contato</strong></a>
@@ -240,7 +240,7 @@ Set **AIo** as the default Phone / Calling app (`ROLE_DIALER`) in Android Settin
 
 | Artifact | File Name | SHA-256 Hash |
 | :--- | :--- | :--- |
-| Android Debug APK | `app-debug.apk` | `828DC7E3DDF7E2C0A68046A9ED2FE3771A7ED92E934C1417F0596B39478171C7` |
+| Android Release APK | `AIo-v1.0.0.apk` | `FA36F0AC6884DF504D52BB0BCEA1031DE4FBCEEDF6B86328FD224713F83B65E7` |
 
 ---
 
