@@ -82,6 +82,10 @@ class MainActivity : ComponentActivity() {
         val initialPrompt = personaManager.activePersona.value.systemPrompt
         callConversationManager.setSystemPrompt(initialPrompt)
 
+        checkDefaultDialerStatus()
+        checkAudioPermissionStatus()
+        checkContactsPermissionStatus()
+
         com.example.ai_assistant.logging.InAppLogger.info("Sistema", "AIô iniciado. Monitorando serviços locais e telefonia.")
 
         setContent {
